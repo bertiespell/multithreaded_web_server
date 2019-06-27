@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 struct Worker {
-    thread: thread::JoinHandle<()>,
+    thread: Option<thread::JoinHandle<()>>,
     id: usize,
 }
 
@@ -20,7 +20,7 @@ impl Worker {
         });
         Worker {
             id,
-            thread,
+            thread: Some(thread),
         }
     }
 }
@@ -41,6 +41,7 @@ impl<F: FnOnce()> FnBox for F {
 }
 
 type Job = Box<dyn FnBox + Send + 'static>;
+
 
 impl ThreadPool {
     /// Create a new ThreadPool.
@@ -71,5 +72,17 @@ impl ThreadPool {
         let job = Box::new(f);
 
         self.sender.send(job).unwrap();
+    }
+}
+
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        for worker in &mut self.workers {
+            println!("Shutting down worker {}", worker.id);
+
+            if let Some(thread) = worker.thread.take() {
+                thread.join().unwrap();
+            }
+        }
     }
 }
