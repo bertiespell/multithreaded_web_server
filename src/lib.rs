@@ -7,16 +7,20 @@ use std::sync::Mutex;
 struct Worker {
     thread: thread::JoinHandle<()>,
     id: usize,
-    receiver: Arc<Mutex<Receiver<Job>>>
 }
 
 impl Worker {
     fn new(id: usize, receiver: Arc<Mutex<Receiver<Job>>>) -> Worker {
-        let thread = thread::spawn(|| {});
+        let thread = thread::spawn(move || {
+            loop {
+                let job = receiver.lock().unwrap().recv().unwrap();
+                println!("Worker {} got a job; executing.", id);
+                job.call_box();
+            }
+        });
         Worker {
             id,
             thread,
-            receiver
         }
     }
 }
@@ -26,17 +30,17 @@ pub struct ThreadPool {
     sender: Sender<Job>
 }
 
-pub struct Job {
-
+trait FnBox {
+    fn call_box(self: Box<Self>);
 }
 
-/**
-The ThreadPool will create a channel and hold on to the sending side of the channel.
-Each Worker will hold on to the receiving side of the channel.
-We’ll create a new Job struct that will hold the closures we want to send down the channel.
-The execute method will send the job it wants to execute down the sending side of the channel.
-In its thread, the Worker will loop over its receiving side of the channel and execute the closures of any jobs it receives.
- */
+impl<F: FnOnce()> FnBox for F {
+    fn call_box(self: Box<F>) {
+        (*self)()
+    }
+}
+
+type Job = Box<dyn FnBox + Send + 'static>;
 
 impl ThreadPool {
     /// Create a new ThreadPool.
@@ -64,6 +68,8 @@ impl ThreadPool {
         where 
             F: FnOnce() + Send + 'static
     {
+        let job = Box::new(f);
 
+        self.sender.send(job).unwrap();
     }
 }
